@@ -85,7 +85,7 @@ Prove that Free is a Functor
         Free fa
       =   { unapplying id }
         id (Free fa)
-      □
+    □
 
   ## *Composition law:*
     Base case:
@@ -117,7 +117,7 @@ Prove that Free is a Functor
         fmap g (fmap h (Free fa))
       =   { unapplying . }
         (fmap g . fmap h) (Free fa)
-      □
+    □
 
 Prove that Free is an Applicative
 ================================================================================
@@ -137,25 +137,26 @@ Prove that Free is an Applicative
   ## Identity law:
     Base case:
 
-      pure id <*> Pure a
-    =   { applying pure }
-      Pure id <*> Pure a
-    =   { applying <*> }
-      Pure (id a)
-    =   { applying id }
-      Pure a
+        pure id <*> Pure a
+      =   { applying pure }
+        Pure id <*> Pure a
+      =   { applying <*> }
+        Pure (id a)
+      =   { applying id }
+        Pure a
 
     Inductive case:
 
-      pure id <*> Free fa
-    =   { applying pure }
-      Pure id <*> Free fa
-    =   { applying <*> }
-      Free (fmap (fmap id) fa)
-    =   { inductive hypothesis }
-      Free (fmap id fa)
-    =   { functor identity law for f }
-      Free fa
+        pure id <*> Free fa
+      =   { applying pure }
+        Pure id <*> Free fa
+      =   { applying <*> }
+        Free (fmap (fmap id) fa)
+      =   { inductive hypothesis }
+        Free (fmap id fa)
+      =   { functor identity law for f }
+        Free fa
+    □
 
   ## TODO: Composition law:
 
@@ -166,35 +167,37 @@ Prove that Free is an Applicative
       Pure f <*> Pure x
     =   { applying <*> }
       Pure (f x)
+    □
 
   ## Interchange law:
     Base case:
 
-      Pure a <*> pure y
-    =   { applying pure }
-      Pure a <*> Pure y
-    =   { applying <*> }
-      Pure (a y)
-    =   { unapplying $ }
-      Pure (($ y) a)
-    =   { unapplying <*> }
-      Pure ($ y) <*> Pure a
-    =   { unapplying pure }
-      pure ($ y) <*> Pure a
+        Pure a <*> pure y
+      =   { applying pure }
+        Pure a <*> Pure y
+      =   { applying <*> }
+        Pure (a y)
+      =   { unapplying $ }
+        Pure (($ y) a)
+      =   { unapplying <*> }
+        Pure ($ y) <*> Pure a
+      =   { unapplying pure }
+        pure ($ y) <*> Pure a
 
     Inductive case:
 
-      Free fa <*> pure y
-    =   { applying pure }
-      Free fa <*> Pure y
-    =   { applying <*> }
-      Free (fmap (<*> Pure y) fa)
-    =   { inductive hypothesis }
-      Free (fmap (fmap ($ y)) fa)
-    =   { unapplying <*> }
-      Pure ($ y) <*> Free fa
-    =   { unapplying pure }
-      pure ($ y) <*> Free fa
+        Free fa <*> pure y
+      =   { applying pure }
+        Free fa <*> Pure y
+      =   { applying <*> }
+        Free (fmap (<*> Pure y) fa)
+      =   { inductive hypothesis }
+        Free (fmap (fmap ($ y)) fa)
+      =   { unapplying <*> }
+        Pure ($ y) <*> Free fa
+      =   { unapplying pure }
+        pure ($ y) <*> Free fa
+    □
 
 Prove that Free is a Monad
 ================================================================================
@@ -219,49 +222,52 @@ Prove that Free is a Monad
       Pure a >>= k
     =   { applying >>= }
       k a
+    □
 
   ## Right identity law:
     Base case:
 
-      Pure a >>= return
-    =   { applying >>= }
-      return a
-    =   { return }
-      Pure a
+        Pure a >>= return
+      =   { applying >>= }
+        return a
+      =   { return }
+        Pure a
 
     Inductive case:
 
-      Free fa >>= return
-    =   { applying >>= }
-      Free (fmap (>>= return) fa)
-    =   { inductive hypothesis }
-      Free (fmap id fa)
-    =   { functor identity law for f }
-      Free fa
+        Free fa >>= return
+      =   { applying >>= }
+        Free (fmap (>>= return) fa)
+      =   { inductive hypothesis }
+        Free (fmap id fa)
+      =   { functor identity law for f }
+        Free fa
+    □
 
   ## Associativity law:
     Base case:
 
-      Pure a >>= (\x -> k x >>= h)
-    =   { applying >>= }
-      (\x -> k x >>= h) Pure a
-    =   { applying lambda }
-      k (Pure a) >>= h
-    =   { unapplying >>= }
-      (Pure a >>= k) >>= h
+        Pure a >>= (\x -> k x >>= h)
+      =   { applying >>= }
+        (\x -> k x >>= h) Pure a
+      =   { applying lambda }
+        k (Pure a) >>= h
+      =   { unapplying >>= }
+        (Pure a >>= k) >>= h
 
     Inductive case:
 
-      Free fa >>= (\x -> k x >>= h)
-    =   { applying >>= }
-      Free (fmap (>>= (\x -> k x >>= h)) fa)
-    =   { inductive hypothesis }
-      Free (fmap ((>>= h) . (>>= k)) fa)
-    =   { functor composition law for f }
-      Free ((fmap (>>= h) . fmap (>>= k)) fa)
-    =   { applying . }
-      Free (fmap (>>= h) (fmap (>>= k) fa))
-    =   { unapplying >>= }
-      Free (fmap (>>= k) fa) >>= h
-    =   { applying >>= }
-      (Free fa >>= k) >>= h
+        Free fa >>= (\x -> k x >>= h)
+      =   { applying >>= }
+        Free (fmap (>>= (\x -> k x >>= h)) fa)
+      =   { inductive hypothesis }
+        Free (fmap ((>>= h) . (>>= k)) fa)
+      =   { functor composition law for f }
+        Free ((fmap (>>= h) . fmap (>>= k)) fa)
+      =   { applying . }
+        Free (fmap (>>= h) (fmap (>>= k) fa))
+      =   { unapplying >>= }
+        Free (fmap (>>= k) fa) >>= h
+      =   { applying >>= }
+        (Free fa >>= k) >>= h
+    □
