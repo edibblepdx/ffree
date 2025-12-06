@@ -1,3 +1,9 @@
+{-
+Ethan Dibble
+Dec 6, 2025
+Free Monads
+-}
+
 -- This file contains code. The sister file contains proofs for the functor,
 -- applicative, and monad laws for Free, as well as an explanation of free
 -- monads. My sources are also in the other file.
