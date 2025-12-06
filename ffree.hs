@@ -27,8 +27,13 @@ instance (Functor f) => Monad (Free f) where
 liftF :: (Functor f) => f a -> Free f a
 liftF = Free . fmap Pure
 
+--------------------------------------------------------------------------------
 -- Log -------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Define a logging DSL of solely impure actions over some type a.
+--
+-- This section is mostly based on Haskell for all; Purifying code using free
+-- monads: https://www.haskellforall.com/2012/07/purify-code-using-free-monads.html
 --
 -- Challenges: If you fmap over a Log program, it will not modify the value
 -- inside of Debug like how it modifies the arithmetic expressions. I could not
@@ -47,13 +52,31 @@ instance Functor (LogF a) where
 type Log b = Free (LogF b)
 
 debug :: Int -> Log Int ()
-debug n = liftF $ Debug n ()
+debug a = liftF $ Debug a ()
+
+{-
+liftF (Debug a ())
+= Free (fmap Pure (Debug a ()))
+= Free (Debug a (Pure ())) :: Free (Log Int ())
+-}
 
 info :: String -> Log Int ()
 info s = liftF $ Info s ()
 
+{-
+liftF (Info s ())
+= Free (fmap Pure (Info s ()))
+= Free (Info s (Pure ())) :: Free (Log Int ())
+-}
+
 fatal :: String -> Log Int ()
 fatal s = liftF $ Fatal s
+
+{-
+liftF (Fatal s)
+= Free (fmap Pure (Fatal s)
+= Free (Fatal s) :: Free (Log Int ())
+-}
 
 -- Write a logging program over integers
 -- The helpful constructors: debug, info, and fatal were also defined over Int
@@ -63,6 +86,63 @@ program1 = do
   debug 42
   fatal "bye"
   info "are we still here?"
+
+{-
+We can reason mathematically about the syntactic structure of program1
+
+program1 = do
+  Free (Info "hi" (Pure ()) >>= \_ ->
+  Free (Debug 42 (Pure ()) >>= \_ ->
+  Free (Fatal "bye") >>= \_ ->
+  Free (Info "info "are we still here?" (Pure ())
+
+program1 = do
+  Free (fmap (>>= \_ -> ...) Info "hi" (Pure ()))
+
+program1 = do
+  Free (fmap (>>= \_ -> ...) Info "hi" (Pure ()))
+
+program1 = do
+  Free (Info "hi" ((\_ -> ...) () ))
+
+program1 = do
+  Free (Info "hi" (...)))
+
+program1 = do
+  Free (Info "hi" (
+    Free (Debug 42 (Pure ()) >>= \_ ->
+    Free (Fatal "bye") >>= \_ ->
+    Free (Info "info "are we still here?" (Pure ()))
+  )
+
+{ Debug Follows similarly }
+
+program1 = do
+  Free (Info "hi" (
+  Free (Debug 42 (
+    Free (Fatal "bye") >>= \_ ->
+    Free (Info "info "are we still here?" (Pure ()))
+  ))
+
+{ evaluate
+  Free (Fatal "bye") >>= \_ -> ...
+}
+
+Free (Fatal "bye") >>= \_ -> ...
+= Free (fmap (>>= \_ -> ...) (Fatal "bye"))
+= Free (Fatal "bye")
+
+{ apply to program1 }
+
+program1 = do
+  Free (Info "hi" (
+  Free (Debug 42 (
+  Free (Fatal "bye")))
+-}
+
+-- You might have noticed that Fatal terminated the program prematurely. We will
+-- get back to this more formally in a little bit to show that this is always the
+-- case. And that it allows us to reason about impure actions.
 
 -- Define a logger which will interpret the program's syntax. Debug will print
 -- an integer value, Info will print a string, and Fatal will print a string,
@@ -74,9 +154,11 @@ logger (Free (Info s k)) = putStrLn ("INFO: " ++ s) >> logger k
 logger (Free (Fatal s)) = putStrLn ("FATAL: " ++ s) >> exitFailure
 
 -- https://www.haskellforall.com/2012/07/purify-code-using-free-monads.html
--- Also notice that free monads allowed us to purify our code. All of the impure
--- IO is isolated into the logger function that interprets the program. The
--- above program is equivalent to the following one:
+--
+-- Now back to Fatal's exit semantics. Notice that free monads allowed us to
+-- purify our code. All of the impure IO is isolated into the logger function
+-- that interprets the program. The above program is equivalent to the
+-- following one:
 main = do
   putStrLn "hi"
   print 42
@@ -134,12 +216,25 @@ fatal s
 
 {-# RULES "terminate" forall s m. fatal s >> m = fatal s #-}
 
+--------------------------------------------------------------------------------
 -- Expr ------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 -- Define an arithmetic expression DSL of solely pure actions over integers.
 --
 -- AI disclosure: In creating ExprF I had difficulty understanding the
 -- continuation function. `(Int -> a)` came from Google Gemini and this link
--- https://gist.github.com/avieth/334201aa341d9a00c7fc
+-- https://gist.github.com/avieth/334201aa341d9a00c7fc. So I used equational
+-- reasoning to show the structure of the program syntax.
+--
+-- An alternative definition to our "linked list" type would be a "tree" type
+-- which is what I started with. This version doesn't work with do-notation for
+-- building syntax. You may also think of 'a' as being a 'next' pointer.
+--
+-- data TreeExprF a
+--   = Val Int
+--   | Add a a
+--   | Sub a a
+--   | Mul a a
 
 data ExprF a
   = Val Int (Int -> a)
@@ -181,6 +276,8 @@ program2 = do
   add n m
 
 {-
+We can reason mathematically about the syntactic structure of program2
+
 program :: Expr Int
 program = do
   n <- val 1
@@ -192,41 +289,92 @@ program =
   val 2 >>= \y ->
   add x y
 
+{ evaluate val x }
+
+val x :: Free ExprF Int
+= liftF (val x id)
+= Free (fmap Pure (Val x id))
+= Free (Val x (Pure . id))
+= Free (Val 5 Pure)
+
+{ the rest follow similarly }
+
 program =
   Free (Val 1 Pure) >>= \x ->
   Free (Val 2 Pure) >>= \y ->
   Free (Add x y Pure)
+
+program =
+  Free (fmap (>>= \x -> ...) (Val 1 Pure))
+
+program =
+  Free (Val 1 ((>>= \x -> ...) . Pure))
+
+program =
+  Free (Val 1 (\x ->
+    Free (Val 2 Pure) >>= \y ->
+    Free (Add x y Pure)))
+
+  Free m >>= f = Free ((>>= f) <$> m)
+
+{ repeat for
+  \x -> Free (Val 2 Pure) >>= \y -> ...
+}
+
+program =
+  Free (Val 1 (\x ->
+    Free (fmap (>>= \y -> ...) (Val 2 Pure))))
+
+program =
+  Free (Val 1 (\x ->
+    Free (Val 2 ((>>= \y -> ...) . Pure))))
+
+program =
+  Free (Val 1 (\x ->
+  Free (Val 2 (\y ->
+  Free (Add x y Pure)))))
 -}
 
--- run :: Expr Int :+: Log () -> IO Int
+tinyprogram :: Expr Int
+tinyprogram = do
+  val 5
+
+{-
+tinyprogram = val 5 = Free (Val (5 Pure))
+-}
 
 wrap :: String -> String
 wrap s = "(" ++ s ++ ")"
 
--- Pretty printer
-pretty :: Expr Int -> String
-pretty (Pure n) = show n
-pretty (Free (Val n k)) = pretty . k $ n
-pretty (Free (Add n m k)) =
-  let g = pretty . k
+-- We can then introduce pretty printing
+pretty1 :: Expr Int -> String
+pretty1 (Pure n) = show n
+pretty1 (Free (Val n k)) = pretty1 . k $ n
+pretty1 (Free (Add n m k)) =
+  let g = pretty1 . k
    in wrap $ g n ++ "+" ++ g m
-pretty (Free (Sub n m k)) =
-  let g = pretty . k
+pretty1 (Free (Sub n m k)) =
+  let g = pretty1 . k
    in wrap $ g n ++ "-" ++ g m
-pretty (Free (Mul n m k)) =
-  let g = pretty . k
+pretty1 (Free (Mul n m k)) =
+  let g = pretty1 . k
    in wrap $ g n ++ "*" ++ g m
 
--- Arithmetic evaluator
-eval :: Expr Int -> Int
-eval (Pure n) = n
-eval (Free x) = case x of
-  (Val n k) -> eval . k $ n
-  (Add n m k) -> eval . k $ n + m
-  (Sub n m k) -> eval . k $ n - m
-  (Mul n m k) -> eval . k $ n * m
+-- And an arithmetic evaluator
+eval1 :: Expr Int -> Int
+eval1 (Pure n) = n
+eval1 (Free x) = case x of
+  (Val n k) -> eval1 . k $ n
+  (Add n m k) -> eval1 . k $ n + m
+  (Sub n m k) -> eval1 . k $ n - m
+  (Mul n m k) -> eval1 . k $ n * m
 
--- coproduct -------------------------------------------------------------------
+-- We have isolated the syntax of the program from the semantics of the program.
+-- With a single program we can define multiple ways to interpret it.
+
+--------------------------------------------------------------------------------
+-- coproducts of functors --------------------------------------------------------
+--------------------------------------------------------------------------------
 -- for any monad `f`, we can inject it into a free monad over a functor sum
 --
 -- This section is almost entirely based on the paper: "data types a la carte".
@@ -237,14 +385,15 @@ eval (Free x) = case x of
 -- arbitrary number of languages injected into some larger language. Here I only
 -- support two languages. The sum of functors is similar to Data.Either.
 --
--- It would be helpful to declare a type class that abstracts the pretty
--- printing and evaluating semantics (again like in "data types a la carte").
+-- Challenges: It would be helpful to declare type classes that abstract the
+-- pretty printing and evaluating semantics (again like in "data types a la
+-- carte"), but I was unable to figure it out.
 --
 -- https://www.cambridge.org/core/journals/journal-of-functional-programming/article/data-types-a-la-carte/14416CB20C4637164EA9F77097909409
 --
 -- https://gist.github.com/avieth/334201aa341d9a00c7fc
 
--- The sum of two functors is similar in form to Data.Either
+-- The sum of two functors, which similar in form to Data.Either
 data (f :+: g) a = InL (f a) | InR (g a)
 
 -- Is itself a functor (same as in Prelude Data.Functor.Sum)
@@ -323,6 +472,7 @@ pretty2 (Free (InR x)) = case x of
 prettyprint :: DSL Int -> IO ()
 prettyprint = putStrLn . pretty2
 
+-- Evaluating the program also terminates early because of `fatal`.
 run :: DSL Int -> IO Int
 run (Pure n) = return n
 run (Free (InL x)) = case x of
