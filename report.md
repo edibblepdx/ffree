@@ -165,7 +165,7 @@ Prove that Free is a Functor
         id (Free fa)
     □
 
-  ## *Composition law:*
+  ## Composition law:
     Base case:
 
         fmap (g . h) (Pure a)
