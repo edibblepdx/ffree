@@ -4,9 +4,9 @@
 -- otherwise imposes no deeper semantics itself" (Wikipedia). The Maybe monad is
 -- a free monad entirely through the Just and Nothing markers.
 
--- import Data.Functor.Sum
 import System.Exit
 
+-- This implementation of free comes from Control.Monad.Free
 data Free f a = Pure a | Free (f (Free f a))
 
 instance (Functor f) => Functor (Free f) where
@@ -28,47 +28,130 @@ liftF :: (Functor f) => f a -> Free f a
 liftF = Free . fmap Pure
 
 -- Log -------------------------------------------------------------------------
+-- Define a logging DSL of solely impure actions over some type a.
+--
+-- Challenges: If you fmap over a Log program, it will not modify the value
+-- inside of Debug like how it modifies the arithmetic expressions. I could not
+-- figure out how to modify the debug value.
 
-data LogF a
-  = Debug Int a
-  | Info String a
+data LogF a b
+  = Debug a b
+  | Info String b
   | Fatal String
 
-type Log = Free LogF
-
-debug :: Int -> Log ()
-debug n = liftF $ Debug n ()
-
-info :: String -> Log ()
-info s = liftF $ Info s ()
-
-fatal :: String -> Log ()
-fatal s = liftF $ Fatal s ()
-
-instance Functor LogF where
+instance Functor (LogF a) where
   fmap g (Debug n a) = Debug n (g a)
   fmap g (Info s a) = Info s (g a)
-  fmap g (Fatal s) = Fatal s (g a)
+  fmap g (Fatal s) = Fatal s
 
-program1 :: Log ()
+type Log b = Free (LogF b)
+
+debug :: Int -> Log Int ()
+debug n = liftF $ Debug n ()
+
+info :: String -> Log Int ()
+info s = liftF $ Info s ()
+
+fatal :: String -> Log Int ()
+fatal s = liftF $ Fatal s
+
+-- Write a logging program over integers
+-- The helpful constructors: debug, info, and fatal were also defined over Int
+program1 :: Log Int ()
 program1 = do
   info "hi"
   debug 42
   fatal "bye"
+  info "are we still here?"
 
-logger :: Log r -> IO r
+-- Define a logger which will interpret the program's syntax. Debug will print
+-- an integer value, Info will print a string, and Fatal will print a string,
+-- then terminate the program.
+logger :: Log Int r -> IO r
 logger (Pure r) = return r
 logger (Free (Debug n k)) = putStrLn ("DEBUG: " ++ show n) >> logger k
 logger (Free (Info s k)) = putStrLn ("INFO: " ++ s) >> logger k
 logger (Free (Fatal s)) = putStrLn ("FATAL: " ++ s) >> exitFailure
 
+-- https://www.haskellforall.com/2012/07/purify-code-using-free-monads.html
+-- Also notice that free monads allowed us to purify our code. All of the impure
+-- IO is isolated into the logger function that interprets the program. The
+-- above program is equivalent to the following one:
+main = do
+  putStrLn "hi"
+  print 42
+  putStrLn "bye"
+  exitFailure
+  putStrLn "are we still here?"
+
+-- Will the program print "are we still here"? We might think not, but what if
+-- exitFailure was redefined to be this function? Then it would be printed.
+exitFailure' :: IO ()
+exitFailure' = return ()
+
+-- In the above program, we cannot prove that the message: "are we still here",
+-- will be printed or not. But through purification via free monads, we can prove
+-- that any command after fatal does not execute using equational reasoning;
+-- i.e. that fatal s >> m = fatal s.
+
+{-
+fatal s >> m
+
+=   { fatal s = liftF (Fatal s)}
+liftF (Fatal s) >> m
+
+=   { m >> m' = m >>= \_ -> m' }
+liftF (Fatal s) >>= \_ -> m
+
+=   { liftF f = Free (fmap Pure f) }
+Free (fmap Pure (Fatal s)) >>= \_ -> m
+
+=   { fmap g (Fatal s) = Fatal s }
+Free (Fatal s) >>= \_ -> m
+
+=   { Free m >>= f = Free (fmap (>>= f) m) }
+Free (fmap (>>= \_ -> m) (Fatal s))
+
+=   { fmap g (Fatal s) = Fatal s }
+Free (Fatal s)
+
+=   { fmap g (Fatal s) = Fatal s }
+Free (fmap Pure (Fatal s))
+
+=   { liftF f = Free (fmap Pure f) }
+liftF (Fatal s)
+
+=   { fatal s = liftF (Fatal s)}
+fatal s
+-}
+
+-- In our program syntax we have proved that fatal will always terminate the
+-- program no matter the interpreter (however nothing was, nor could be, proved
+-- about exitFailure itself). We can assert that the following rule will hold
+-- always.
+
+{-# NOINLINE fatal #-}
+
+{-# RULES "terminate" forall s m. fatal s >> m = fatal s #-}
+
 -- Expr ------------------------------------------------------------------------
+-- Define an arithmetic expression DSL of solely pure actions over integers.
+--
+-- AI disclosure: In creating ExprF I had difficulty understanding the
+-- continuation function. `(Int -> a)` came from Google Gemini and this link
+-- https://gist.github.com/avieth/334201aa341d9a00c7fc
 
 data ExprF a
   = Val Int (Int -> a)
   | Add Int Int (Int -> a)
   | Sub Int Int (Int -> a)
   | Mul Int Int (Int -> a)
+
+instance Functor ExprF where
+  fmap g (Val n k) = Val n (g . k)
+  fmap g (Add n m k) = Add n m (g . k)
+  fmap g (Sub n m k) = Sub n m (g . k)
+  fmap g (Mul n m k) = Mul n m (g . k)
 
 type Expr = Free ExprF
 
@@ -90,12 +173,6 @@ sub n m = liftF $ Sub n m id
 
 mul :: Int -> Int -> Expr Int
 mul n m = liftF $ Mul n m id
-
-instance Functor ExprF where
-  fmap g (Val n k) = Val n (g . k)
-  fmap g (Add n m k) = Add n m (g . k)
-  fmap g (Sub n m k) = Sub n m (g . k)
-  fmap g (Mul n m k) = Mul n m (g . k)
 
 program2 :: Expr Int
 program2 = do
@@ -126,6 +203,7 @@ program =
 wrap :: String -> String
 wrap s = "(" ++ s ++ ")"
 
+-- Pretty printer
 pretty :: Expr Int -> String
 pretty (Pure n) = show n
 pretty (Free (Val n k)) = pretty . k $ n
@@ -139,64 +217,91 @@ pretty (Free (Mul n m k)) =
   let g = pretty . k
    in wrap $ g n ++ "*" ++ g m
 
+-- Arithmetic evaluator
 eval :: Expr Int -> Int
 eval (Pure n) = n
-eval (Free (Val n k)) = eval . k $ n
-eval (Free (Add n m k)) = eval . k $ n + m
-eval (Free (Sub n m k)) = eval . k $ n - m
-eval (Free (Mul n m k)) = eval . k $ n * m
+eval (Free x) = case x of
+  (Val n k) -> eval . k $ n
+  (Add n m k) -> eval . k $ n + m
+  (Sub n m k) -> eval . k $ n - m
+  (Mul n m k) -> eval . k $ n * m
 
 -- coproduct -------------------------------------------------------------------
+-- for any monad `f`, we can inject it into a free monad over a functor sum
+--
+-- This section is almost entirely based on the paper: "data types a la carte".
+-- I will not go into any depth on category theory as I just do not have the
+-- required knowledge at the moment.
+--
+-- Simplified from "data types a la carte" in that the sum does not support an
+-- arbitrary number of languages injected into some larger language. Here I only
+-- support two languages. The sum of functors is similar to Data.Either.
+--
+-- It would be helpful to declare a type class that abstracts the pretty
+-- printing and evaluating semantics (again like in "data types a la carte").
+--
+-- https://www.cambridge.org/core/journals/journal-of-functional-programming/article/data-types-a-la-carte/14416CB20C4637164EA9F77097909409
+--
+-- https://gist.github.com/avieth/334201aa341d9a00c7fc
 
+-- The sum of two functors is similar in form to Data.Either
 data (f :+: g) a = InL (f a) | InR (g a)
 
+-- Is itself a functor (same as in Prelude Data.Functor.Sum)
 instance (Functor f, Functor g) => Functor (f :+: g) where
   fmap f (InL e) = InL (fmap f e)
   fmap f (InR e) = InR (fmap f e)
 
-liftFL :: ExprF a -> DSL a
-liftFL = liftF . InL
+-- The type constraint f :<: g is satisfied if there is some injection
+-- from f to g.
+class (Functor f, Functor g) => f :<: g where
+  inject :: f a -> g a
 
-liftFR :: LogF a -> DSL a
-liftFR = liftF . InR
+-- :<: is reflexive.
+instance (Functor f) => f :<: f where
+  inject = id
 
-type DSL = Free (ExprF :+: LogF)
+-- To inject any value of type `f a` into a type `(f :+: g) a`
+-- is equivalent to InL.
+instance (Functor f, Functor g) => f :<: (f :+: g) where
+  inject = InL
 
-val' :: Int -> DSL Int
-val' n = liftFL $ Val n id
+-- To inject any value of type `f a` into a type `(g :+: f) a`
+-- is equivalent to InR.
+instance (Functor f, Functor g) => f :<: (g :+: f) where
+  inject = InR
 
-add' :: Int -> Int -> DSL Int
-add' n m = liftFL $ Add n m id
+-- This function injects a functor f into a sum of functors g, wherein either
+-- the left or right member of g is of type f.
+--
+-- The type class allows a single inj function rather than an injL and injR
+-- which makes it easier to write. This combined DSL still only supports two
+-- distinct languages however. "Data types a la carte" has a general impl.
+inj :: (Functor f, Functor g, f :<: g) => Free f a -> Free g a
+inj (Pure x) = Pure x
+inj (Free x) = Free $ inject (fmap inj x)
 
-sub' :: Int -> Int -> DSL Int
-sub' n m = liftFL $ Sub n m id
+injF :: (Functor f, f :<: g) => f a -> Free g a
+injF = liftF . inject
 
-mul' :: Int -> Int -> DSL Int
-mul' n m = liftFL $ Mul n m id
-
-debug' :: Int -> DSL ()
-debug' n = liftFR $ Debug n ()
-
-info' :: String -> DSL ()
-info' s = liftFR $ Info s ()
-
-fatal' :: String -> DSL ()
-fatal' s = liftFR $ Fatal s ()
+type DSL = Free (ExprF :+: LogF Int)
 
 program3 :: DSL Int
 program3 = do
-  info' "starting execution"
-  a <- val' 1
-  b <- val' 2
-  info' "adding 1 and 2"
-  c <- add' a b
-  debug' c
-  info' "multiplying by 12"
-  d <- mul' c 12
-  debug' d
-  fatal' "fatal error"
+  inj $ info "starting execution"
+  a <- inj $ val 1
+  b <- inj $ val 2
+  inj $ info "adding a and b, and storing the result in c"
+  c <- inj $ add a b
+  inj $ debug c
+  inj $ info "multiplying c by 12, and storing the result in d"
+  d <- inj $ mul c 12
+  inj $ debug d
+  inj $ fatal "fatal error"
   return d
 
+-- The program will appear to not print properly, but that is because fatal
+-- terminated the program early as was proved in the first section.
 pretty2 :: DSL Int -> String
 pretty2 (Pure n) = show n
 pretty2 (Free (InL x)) = case x of
