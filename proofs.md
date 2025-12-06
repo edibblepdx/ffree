@@ -1,3 +1,75 @@
+Hello
+================================================================================
+
+This file proves that Free is a monad and an explanation of free monads.
+The sister file contains code. I also put my sources at the bottom of this file.
+
+Free Monads
+================================================================================
+
+Free monads allow you to construct a stream of computations that minimally
+satisfies the monad laws. The semantics of such computations are not defined in
+the free monad itself; therefore, a free monad can be seen as pure syntax.
+"Syntax" refers to the structure of a language and "semantics" refers to the
+meaning of a language.  
+
+We can define one, or many, "interpreters" that consumes and describes the
+semantics of each action. For example, the program  
+
+```hs
+Free (Val 1 (\x ->
+Free (Val 2 (\y ->
+Free (Add x y Pure)))))
+```
+
+Can mean the integer 3 when evaluating it as an arithmetic expression or the
+string "(1+3)" when printed. But the syntax remains the same in the free monadic
+structure, while the meaning is deferred to the interpreter.  
+
+The syntactic significance of free monads also allows us to purify an impure
+program, by stripping semantics. This allows us to reason mathematically about
+impure programs. For example, the following program can be interpreted as main  
+
+```hs
+program :: Log Int ()
+program = do
+  info "hi"
+  debug 42
+  fatal "bye"
+  info "are we still here?"
+```
+
+```hs
+main :: IO ()
+main = do
+  putStrLn "hi"
+  print 42
+  putStrLn "bye"
+  exitFailure
+  putStrLn "are we still here?"
+```
+
+We cannot reason about main, every action is impure. But we can separate the
+syntax from the semantics and reason about the purified program. In the following
+functorial language, Fatal contains no continuation. We can reason (the proof is
+in the other file), that the last line of the program will never execute, no
+matter the meaning we impose onto this syntax.
+
+```hs
+data LogF a b
+  = Debug a b
+  | Info String b
+  | Fatal String
+
+instance Functor (LogF a) where
+  fmap g (Debug n a) = Debug n (g a)
+  fmap g (Info s a) = Info s (g a)
+  fmap g (Fatal s) = Fatal s
+```
+
+Free monads allow us to defer semantics to another body and represent programs
+as pure syntax. This also allows us to reason somewhat about impure programs.
+
 Free
 ================================================================================
 
@@ -271,3 +343,15 @@ Prove that Free is a Monad
       =   { applying >>= }
         (Free fa >>= k) >>= h
     □
+
+Main Sources
+================================================================================
+
+- [1] [Hackage: Control.Monad.Free](https://hackage.haskell.org/package/free-5.2/docs/src/Control.Monad.Free.html#Free)
+- [2] [Hackage: Data.Functor.Sum](https://hackage.haskell.org/package/base-4.21.0.0/docs/src/Data.Functor.Sum.html#Sum)
+- [3] [Wikipedia: Monad](https://en.wikipedia.org/wiki/Monad_(functional_programming))
+- [4] [Stack overflow: What are free monads?](https://stackoverflow.com/questions/13352205/what-are-free-monads)
+- [5] [Haskell for all: Why free monads matter](https://www.haskellforall.com/2012/06/you-could-have-invented-free-monads.html)
+- [6] [Haskell for all: Purify code using free monads](https://www.haskellforall.com/2012/07/purify-code-using-free-monads.html)
+- [7] [Data types a la carte](https://www.cambridge.org/core/journals/journal-of-functional-programming/article/data-types-a-la-carte/14416CB20C4637164EA9F77097909409)
+- [8] [Interpreting free monads of functor sums](https://gist.github.com/avieth/334201aa341d9a00c7fc)

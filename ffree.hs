@@ -1,10 +1,25 @@
+-- This file contains code. The sister file contains proofs for the functor,
+-- applicative, and monad laws for Free, as well as an explanation of free
+-- monads. My sources are also in the other file.
+--
+-- I define two domain specific languages: one of solely impure actions
+-- (a logger), and another of pure actions (arithmetic expressions). Except I
+-- show that free monads can isolate impure parts such that you can reason
+-- mathematically about impure programs. Then I sum (or take the coproduct) of
+-- the functorial languages, which itself is also a functor and therefore can be
+-- made into a free monad, and I get one combined domain specific language with
+-- both logging and arithmetic expressions.
+
+-- This import is for the logging language
+import System.Exit
+
+{-
+== Free ========================================================================
+-}
 -- Where f is a functor. This Free monad structure is similar to that of a linked
 -- list, wherein Free is a functor and the next element, or Pure. "A free monad
 -- allows chaining computations with markers to satisfy the type system, but
--- otherwise imposes no deeper semantics itself" (Wikipedia). The Maybe monad is
--- a free monad entirely through the Just and Nothing markers.
-
-import System.Exit
+-- otherwise imposes no deeper semantics itself" (Wikipedia).
 
 -- This implementation of free comes from Control.Monad.Free
 data Free f a = Pure a | Free (f (Free f a))
@@ -27,17 +42,17 @@ instance (Functor f) => Monad (Free f) where
 liftF :: (Functor f) => f a -> Free f a
 liftF = Free . fmap Pure
 
---------------------------------------------------------------------------------
--- Log -------------------------------------------------------------------------
---------------------------------------------------------------------------------
+{-
+== Logging Language ============================================================
+-}
 -- Define a logging DSL of solely impure actions over some type a.
 --
 -- This section is mostly based on Haskell for all; Purifying code using free
 -- monads: https://www.haskellforall.com/2012/07/purify-code-using-free-monads.html
 --
 -- Challenges: If you fmap over a Log program, it will not modify the value
--- inside of Debug like how it modifies the arithmetic expressions. I could not
--- figure out how to modify the debug value.
+-- inside of Debug like how it modifies the *result* of evaluating arithmetic
+-- expressions. I could not figure out how to modify the debug value.
 
 data LogF a b
   = Debug a b
@@ -159,6 +174,7 @@ logger (Free (Fatal s)) = putStrLn ("FATAL: " ++ s) >> exitFailure
 -- purify our code. All of the impure IO is isolated into the logger function
 -- that interprets the program. The above program is equivalent to the
 -- following one:
+main :: IO ()
 main = do
   putStrLn "hi"
   print 42
@@ -216,9 +232,9 @@ fatal s
 
 {-# RULES "terminate" forall s m. fatal s >> m = fatal s #-}
 
---------------------------------------------------------------------------------
--- Expr ------------------------------------------------------------------------
---------------------------------------------------------------------------------
+{-
+== Arithmetic Expressions Language =============================================
+-}
 -- Define an arithmetic expression DSL of solely pure actions over integers.
 --
 -- AI disclosure: In creating ExprF I had difficulty understanding the
@@ -372,9 +388,9 @@ eval1 (Free x) = case x of
 -- We have isolated the syntax of the program from the semantics of the program.
 -- With a single program we can define multiple ways to interpret it.
 
---------------------------------------------------------------------------------
--- coproducts of functors --------------------------------------------------------
---------------------------------------------------------------------------------
+{-
+== coproducts of functors ======================================================
+-}
 -- for any monad `f`, we can inject it into a free monad over a functor sum
 --
 -- This section is almost entirely based on the paper: "data types a la carte".
